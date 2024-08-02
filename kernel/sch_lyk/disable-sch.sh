@@ -1,0 +1,16 @@
+#!/bin/bash
+set -eu
+
+SCRIPTPATH="$(cd "$(dirname ${BASH_SOURCE[0]})" && pwd)"
+
+. $SCRIPTPATH/../lib/utils.sh
+
+SCHNAME='lyk'
+MODNAME="sch_$SCHNAME"
+
+main () {
+    sudo ls > /dev/null
+    remove_sch_mod $MODNAME $SCHNAME
+}
+
+main "$@"
