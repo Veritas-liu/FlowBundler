@@ -21,7 +21,10 @@
 
 #define DFB_DEBUG 0
 #define DFB_PROFILE 0
+#define DFB_LYK 1
 
+// FLOW_NUM must be 1<<k
+#define FLOW_NUM 512
 // scaling factor of bucket number
 #define BUCKET_NUM_SCALE 10
 #define BUCKET_NUM (1 << BUCKET_NUM_SCALE)
@@ -62,6 +65,10 @@ struct dfb_sched_data {
 #if DFB_PROFILE
     u64 enqueue_cycles;
     u64 dequeue_cycles;
+#endif
+#if DFB_LYK
+    bool congestion[FLOW_NUM];
+    u64 congestion_flows_rate;
 #endif
     struct qdisc_watchdog watchdog;
 };
@@ -337,6 +344,24 @@ static int dfb_segment(struct sk_buff *skb, struct Qdisc *sch,
     return nb > 0 ? NET_XMIT_SUCCESS : NET_XMIT_DROP;
 }
 
+#if DFB_LYK
+inline int hash(unsigned int key){
+    key = ((key >> 16) ^ key) * 0x45d9f3b;
+    key = ((key >> 16) ^ key) * 0x45d9f3b;
+    key = (key >> 16) ^ key;
+    return key&(FLOW_NUM-1);
+}
+inline void pr_ip(unsigned int ip){
+    pr_info(
+        "dst_ip=%u.%u.%u.%u\n",
+        ip&255,
+        (ip>>8)&255,
+        (ip>>26)&255,
+        (ip>>24)&255
+    );
+}
+#endif
+
 static int dfb_enqueue(struct sk_buff *skb, struct Qdisc *sch,
                   struct sk_buff **to_free)
 {
@@ -351,6 +376,27 @@ static int dfb_enqueue(struct sk_buff *skb, struct Qdisc *sch,
     // queue index
     u8 qid = 0;
     // u64 *prev_ts = dfb_get_prev_ts(sk);
+#if DFB_LYK
+    struct iphdr *iph = ip_hdr(skb);
+    if(iph){
+        unsigned int dst_ip = iph->daddr;
+        if(q->congestion[hash(dst_ip)]){
+            rate = q->congestion_flows_rate;
+        }
+        else{
+            const struct inet_connection_sock *icsk = inet_csk(sk);
+            if(icsk!=NULL && icsk->icsk_ca_state > TCP_CA_Disorder){
+                q->congestion[hash(dst_ip)] = true;
+                pr_info(
+                    "a new flow become congestion : "
+                );
+                pr_ip(dst_ip);
+                q->congestion_flows_rate += rate;
+                rate = q->congestion_flows_rate;
+            }
+        }
+    }
+#endif
 #if DFB_DEBUG >= 2
     u64 now = ktime_get_ns();
 #endif
