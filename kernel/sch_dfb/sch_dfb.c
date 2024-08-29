@@ -345,20 +345,11 @@ static int dfb_segment(struct sk_buff *skb, struct Qdisc *sch,
 }
 
 #if DFB_LYK
-inline int hash(unsigned int key){
-    key = ((key >> 16) ^ key) * 0x45d9f3b;
-    key = ((key >> 16) ^ key) * 0x45d9f3b;
-    key = (key >> 16) ^ key;
-    return key&(FLOW_NUM-1);
-}
-inline void pr_ip(unsigned int ip){
-    pr_info(
-        "dst_ip=%u.%u.%u.%u\n",
-        ip&255,
-        (ip>>8)&255,
-        (ip>>26)&255,
-        (ip>>24)&255
-    );
+inline uint64_t hash(uint64_t key) {
+    key = ((key >> 32) ^ key) * 0xC6A4A7935BD1E995;
+    key = ((key >> 32) ^ key) * 0xC6A4A7935BD1E995;
+    key = (key >> 32) ^ key;
+    return key & (FLOW_NUM - 1);
 }
 #endif
 
@@ -377,22 +368,18 @@ static int dfb_enqueue(struct sk_buff *skb, struct Qdisc *sch,
     u8 qid = 0;
     // u64 *prev_ts = dfb_get_prev_ts(sk);
 #if DFB_LYK
-    struct iphdr *iph = ip_hdr(skb);
-    if(iph){
-        unsigned int dst_ip = iph->daddr;
-        if(q->congestion[hash(dst_ip)]){
+    if(skb){
+        if(q->congestion[hash((uint64_t)sk)]){
             rate = q->congestion_flows_rate;
         }
         else{
             const struct inet_connection_sock *icsk = inet_csk(sk);
             if(icsk!=NULL && icsk->icsk_ca_state > TCP_CA_Disorder){
-                q->congestion[hash(dst_ip)] = true;
-                pr_info(
-                    "a new flow become congestion : "
-                );
-                pr_ip(dst_ip);
+                q->congestion[hash((uint64_t)sk)] = true;
+                pr_info("a new flow become congestion : %llu", (uint64_t)sk);
                 q->congestion_flows_rate += rate;
                 rate = q->congestion_flows_rate;
+                pr_info("current congestion rate: %llu", rate);
             }
         }
     }
